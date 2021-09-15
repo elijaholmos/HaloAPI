@@ -10,7 +10,27 @@ const COURSES = {
 };
 
 //fetch API credentials from a separate file
-const token = JSON.parse(await fs.readFile('./cache/auth-token.json', 'utf-8'));
+let token = JSON.parse(await fs.readFile('./cache/auth-token.json', 'utf-8'));
+
+const refreshToken = async function() {
+    const res = await request.post('https://halo.gcu.edu/api/refresh-token')
+        .set({
+            Accept: '*/*',
+            authorization: `Bearer ${token.TE1TX0FVVEg}`,
+            //'content-length': 474,
+            'content-type': 'application/json',
+            contexttoken: `Bearer ${token.TE1TX0NPTlRFWFQ}`,
+            cookie: new URLSearchParams(Object.entries({...token.cookie, TE1TX0FVVEg: token.TE1TX0FVVEg, TE1TX0NPTlRFWFQ: token.TE1TX0NPTlRFWFQ, })).toString().replaceAll('&', '; '),
+        });
+    if(!res.body?.TE1TX0FVVEg) return console.error(`Error fetching token, `, res);
+    token = {
+        ...token,
+        TE1TX0FVVEg: res.body['TE1TX0FVVEg'],
+        TE1TX0NPTlRFWFQ: res.body['TE1TX0NPTlRFWFQ'],
+    };
+    await fs.writeFile('./cache/auth-token.json', JSON.stringify(token));
+    return;
+};
 
 /**
  * 
@@ -22,8 +42,8 @@ const getNewAnnouncements = async function (class_id) {
         .set({
             accept: '*/*',
             'content-type': 'application/json',
-            authorization: `Bearer ${token.token}`,
-            contexttoken: `Bearer ${token.contexttoken}`,
+            authorization: `Bearer ${token.TE1TX0FVVEg}`,
+            contexttoken: `Bearer ${token.TE1TX0NPTlRFWFQ}`,
         })
         .send({ //Specific GraphQL query syntax, reverse-engineered
             operationName: 'GetAnnouncementsStudent',
@@ -31,9 +51,9 @@ const getNewAnnouncements = async function (class_id) {
                 courseClassId: class_id,
             },
             query: 'query GetAnnouncementsStudent($courseClassId: String!) {\n  announcements(courseClassId: $courseClassId) {\n    contextId\n    countUnreadPosts\n    courseClassId\n    dueDate\n    forumId\n    forumType\n    lastPost {\n      isReplied\n      __typename\n    }\n    startDate\n    endDate\n    title\n    posts {\n      content\n      expiryDate\n      forumId\n      forumTitle\n      id\n      isRead\n      modifiedDate\n      originalPostId\n      parentPostId\n      postStatus\n      publishDate\n      startDate\n      tenantId\n      title\n      postReadReceipts {\n        readTime\n        __typename\n      }\n      postTags {\n        tag\n        __typename\n      }\n      createdBy {\n        id\n        user {\n          firstName\n          lastName\n          __typename\n        }\n        __typename\n      }\n      resources {\n        kind\n        name\n        id\n        description\n        type\n        active\n        context\n        __typename\n      }\n      __typename\n    }\n    __typename\n  }\n}\n',
-        })
-        .catch(console.error);
+        });
     //Error handling and data validation could be improved
+    if(res.error) return console.error(res.error);
     //Filter posts that were published in last 10 seconds
     //Inject the class ID so we can use it to get the name later
     return res.body.data.announcements.posts
@@ -89,6 +109,8 @@ const main = async function () {
             sendWebhook(data);
     }
 }
-
 //Run the main function every 10 seconds to check for new announcements
 setInterval(main, 10000);
+//refresh token every 6 hours
+//setInterval(refreshToken, 6 * 60 * 60 * 1000);
+setInterval(refreshToken, 60 * 60 * 1000);
